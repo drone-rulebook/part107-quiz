@@ -26,6 +26,16 @@ const EN_HEAD = ['台本ID', '公開予定日', '問題ID', 'タイトル', '問
 
 // ---------- はじめに1回 ----------
 function enSetup() {
+  // まず、投稿先が英語用のチャンネルかを確かめる。違えば、この仕組みの許可だけを取り消して止まる（日本語版の仕組みには影響しない）
+  let name;
+  try { name = enCheckChannel_(); }
+  catch (e) {
+    ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'enHourly').forEach(t => ScriptApp.deleteTrigger(t));
+    enLog_(e.message);
+    ScriptApp.invalidateAuth();
+    throw new Error('投稿先が英語用のチャンネルではありませんでした（' + (e.channel || 'なし') + '）。この仕組みの許可だけを取り消しました（日本語版には影響しません）。'
+      + 'もう一度 enSetup を実行し、許可の途中で「アカウントまたはブランド アカウントを選択」の画面が出たら、英語用のチャンネルを選んでください。');
+  }
   const ss = SpreadsheetApp.getActive();
   enSheet_(EN_CONF.SHEET, EN_HEAD);
   enSheet_(EN_CONF.SHEET_VIDEOS, ['記録日', '台本ID', '問題ID', 'タイトル', '見た目', '公開日', '公開からの日数', '再生', '高評価', 'コメント', '動画ID']);
@@ -36,9 +46,6 @@ function enSetup() {
   const folder = enInbox_(true);
   ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'enHourly').forEach(t => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('enHourly').timeBased().everyHours(1).create();
-  let name;
-  try { name = enCheckChannel_(); }
-  catch (e) { enLog_(e.message); throw e; }
   const msg = '準備できました。投稿先のチャンネル：' + name + '／台本の受け取りフォルダ：' + folder.getName() + '（' + folder.getId() + '）';
   enLog_(msg);
   return msg;
@@ -213,7 +220,9 @@ function enCheckChannel_() {
   const ch = (YouTube.Channels.list('snippet', { mine: true }).items || [])[0];
   const title = ch ? String(ch.snippet.title) : '';
   if (!ch || title === 'ドローンのルール帳' || /[ぁ-んァ-ヶ一-龠]/.test(title)) {
-    throw new Error('投稿先のチャンネルが英語用ではありません（' + (title || 'なし') + '）。enSetup をもう一度実行し、許可の画面で英語用のチャンネルを選んでください');
+    const err = new Error('投稿先のチャンネルが英語用ではありません（' + (title || 'なし') + '）。enSetup をもう一度実行してください');
+    err.channel = title;
+    throw err;
   }
   return title;
 }
