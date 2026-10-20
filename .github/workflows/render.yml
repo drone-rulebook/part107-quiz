@@ -1,0 +1,79 @@
+name: 動画をつくる（英語版）
+
+on:
+  schedule:
+    - cron: "23 16 * * *"   # 毎日 1時23分（日本時間）
+    - cron: "23 4 * * *"    # 毎日 13時23分（日本時間）
+  push:                      # 仕組みや設定を変えたときにも動かす（動画と結果の記録の更新では動かない）
+    branches: [main]
+    paths-ignore:
+      - "videos/**"
+      - "status.json"
+      - "README.md"
+      - "tests/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: render
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 道具を入れる
+        continue-on-error: true     # 入らなくても、pip の imageio-ffmpeg で動く
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Pythonの部品を入れる
+        run: pip install -q pillow numpy imageio-ffmpeg kokoro-onnx
+
+      - name: 英語の声のモデル（前の回のものを使い回す）
+        uses: actions/cache@v4
+        with:
+          path: models
+          key: kokoro-v1.0-model-files-v1.1
+
+      - name: 英語の声のモデルを取る（無いときだけ）
+        continue-on-error: true     # 取れなければ、声なしで作る（status.json の「声」に出る）
+        run: |
+          mkdir -p models
+          B=https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1
+          [ -s models/kokoro-v1.0.onnx ] || curl -sSfL -o models/kokoro-v1.0.onnx $B/kokoro-v1.0.onnx
+          [ -s models/voices-v1.0.bin ] || curl -sSfL -o models/voices-v1.0.bin $B/voices-v1.0.bin
+          ls -la models
+
+      - name: 台本から動画をつくる
+        run: python render.py
+
+      - name: できた動画と結果を置く
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A videos
+          if [ -f status.json ]; then git add status.json; fi
+          if git diff --cached --quiet; then
+            echo "変更はありません"
+            exit 0
+          fi
+          git commit -q -m "動画を作成 $(TZ=Asia/Tokyo date '+%Y-%m-%d %H:%M')"
+          for i in 1 2 3; do
+            if git pull -q --rebase && git push -q; then exit 0; fi
+            git rebase --abort 2>/dev/null || true
+            sleep 10
+          done
+          echo "::warning::ほかの実行とぶつかったため、この回の結果は置けませんでした（次の回で作り直します）"
+          exit 0
