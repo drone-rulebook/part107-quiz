@@ -1,0 +1,44 @@
+{
+ "format": "part107-inbox/v1",
+ "scripts": [
+  {
+   "qid": "E001",
+   "title": "Part 107: How far below a cloud?",
+   "q1": "Cloud clearance rule.",
+   "q2": "How far *below* a cloud must you stay?",
+   "a": "500 ft",
+   "b": "1,000 ft",
+   "c": "2,000 ft",
+   "answer": "A",
+   "trap": "Trap: 2,000 ft is the *horizontal* distance!",
+   "explain": "14 CFR 107.51(d) requires at least 500 feet below the cloud and 2,000 feet horizontally from the cloud.",
+   "basis": "14 CFR 107.51(d)"
+  },
+  {
+   "qid": "E002",
+   "title": "Part 107: Which crash must you report?",
+   "q1": "A crash damages a car.",
+   "q2": "Report to the FAA above what cost?",
+   "a": "$500",
+   "b": "$1,000",
+   "c": "$2,500",
+   "answer": "A",
+   "trap": "Trap: $500, and your drone *doesn't count*!",
+   "explain": "Report within 10 calendar days if property other than the drone has repair cost (or total-loss value) over $500 (14 CFR 107.9).",
+   "basis": "14 CFR 107.9(b)"
+  },
+  {
+   "qid": "E003",
+   "title": "Part 107: Max altitude near a tower",
+   "q1": "Max altitude: 400 ft AGL.",
+   "q2": "Within 400 ft of a 600-ft tower, how high?",
+   "a": "400 ft AGL",
+   "b": "1,000 ft AGL",
+   "c": "600 ft AGL",
+   "answer": "B",
+   "trap": "Trap: It's 400 ft above the *tower's top*!",
+   "explain": "Within a 400-foot radius of a structure you may fly up to 400 feet above its uppermost limit (14 CFR 107.51(b)).",
+   "basis": "14 CFR 107.51(b)"
+  }
+ ]
+}
