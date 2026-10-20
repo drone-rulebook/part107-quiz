@@ -10,6 +10,7 @@ const EN_CONF = {
   REPO: 'drone-rulebook/part107-quiz',        // 動画の置き場（GitHub）
   UPLOAD_HOUR: 9,                              // 毎日この時（日本時間）に、その日の動画を出す（米国の夕方〜夜）
   INBOX_FOLDER: 'part107_inbox',               // 台本を受け取る Google ドライブのフォルダ（enSetup が作る）
+  SHARE_WITH: '',                              // シートと受け取りフォルダを共有するメインの Google アカウント（Claude が問題を入れ、数字を読むため）
   SHEET: '台本', SHEET_VIDEOS: '数字_動画', SHEET_CHANNEL: '数字_チャンネル', SHEET_LOG: 'ログ',
   STYLES: ['モーション', '黒板', 'ノート'],     // 台本IDの数字で日替わり（動画づくりと同じ順）
   TAGS: ['Part 107', 'Part 107 test', 'FAA Part 107', 'drone license', 'remote pilot', 'drone pilot', 'drone test'],
@@ -44,9 +45,14 @@ function enSetup() {
   const first = ss.getSheets()[0];
   if (first && first.getName() !== EN_CONF.SHEET && first.getLastRow() === 0 && ss.getSheets().length > 1) ss.deleteSheet(first);
   const folder = enInbox_(true);
+  let shared = '';
+  if (EN_CONF.SHARE_WITH) {
+    try { folder.addEditor(EN_CONF.SHARE_WITH); ss.addEditor(EN_CONF.SHARE_WITH); shared = '／メインのアカウントにも共有しました'; }
+    catch (e) { shared = '／メインのアカウントへの共有に失敗しました（' + e.message + '）'; }
+  }
   ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'enHourly').forEach(t => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('enHourly').timeBased().everyHours(1).create();
-  const msg = '準備できました。投稿先のチャンネル：' + name + '／台本の受け取りフォルダ：' + folder.getName() + '（' + folder.getId() + '）';
+  const msg = '準備できました。投稿先のチャンネル：' + name + '／台本の受け取りフォルダ：' + folder.getName() + '（' + folder.getId() + '）' + shared;
   enLog_(msg);
   return msg;
 }
