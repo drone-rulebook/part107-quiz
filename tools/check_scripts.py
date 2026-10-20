@@ -54,6 +54,35 @@ def check(path):
             for name, tb in parts:
                 if tb is not None and not tb.fits:
                     errs.append(f"{tag}: {style} で {name} が入りきりません（短くしてください）")
+    errs += check_theme(theme, data["scripts"])
+    return errs
+
+
+def check_theme(theme, scripts):
+    """つかみの一言（全部）と締めの文字が、3つの見た目すべてで入りきるか"""
+    errs = []
+    row = next((s for s in scripts if s.get("q1")), None)
+    if row is None:
+        return errs
+    sc, _ = render.script_of({"問題1行目": row.get("q1", ""), "問題2行目": row.get("q2", ""), "選択肢A": row.get("a", ""),
+                              "選択肢B": row.get("b", ""), "選択肢C": row.get("c", ""), "正解": row.get("answer", ""),
+                              "ひっかけ": row.get("trap", "")})
+    if sc is None:
+        return errs
+    if not theme.get("つかみ"):
+        errs.append("themes の「つかみ」が空です")
+    for hook in theme.get("つかみ", []):
+        if re.search(r"\d", hook.replace("107", "")):
+            errs.append(f"つかみ「{hook}」：数字は使わないでください（裏付けのない数字を出さないため）")
+        for style in LOOKS:
+            look = render.make_look(dict(sc, hook=hook), theme, style)
+            if not look.hb.fits:
+                errs.append(f"つかみ「{hook}」が {style} で入りきりません")
+    for style in LOOKS:
+        look = render.make_look(sc, theme, style)
+        for name, tb in (("締め_登録", look.eb_sub), ("締め_案内", look.eb_site)):
+            if not tb.fits:
+                errs.append(f"{name} が {style} で入りきりません")
     return errs
 
 

@@ -4,14 +4,14 @@ import math
 import drawkit as dk
 from drawkit import (CX, SAFE, PAD, paste, prog, ease_out, text_sprite, wobble_path, ellipse_path, partial, stroke_sprite,
                      chalkify)
-from .base import Look, COUNT0, COUNT1, REVEAL, TRAP, TR0, TR1, Q_X, CARD_X, CARD_W
+from .base import Look, HOOK, Q0, COUNT0, COUNT1, REVEAL, TRAP, TR0, TR1, Q_X, CARD_X, CARD_W
 
 WRITE = 0.38   # 選択肢1つを書く時間
 
 
 class Hand(Look):
     rough = 0.0                  # >0 でチョークのかすれ
-    card_t = [0.85, 1.25, 1.65]
+    card_t = [Q0 + 0.7, Q0 + 1.05, Q0 + 1.4]
     line_w = 4.0                 # 丸や線の太さ
 
     # 型ごとに決める：self.ink（ふつうの文字）・self.em（強調）・self.ok（正解の丸）・self.ng（まちがいの線）・self.sub（小さな文字）
@@ -46,6 +46,7 @@ class Hand(Look):
         self.p_under = [wobble_path([(Q_X + x0 - 2, self.q_y + (i + 0.93) * self.qb.line_h), (Q_X + x1 + 2, self.q_y + (i + 0.93) * self.qb.line_h)],
                                     s + 40 + k, 1.0, 10) for k, (i, x0, x1) in enumerate(self.qb.spans)]
         self.make_trap()
+        self.make_hook()
         self.make_end()
 
     # ---------- 型ごとに上書き ----------
@@ -64,7 +65,7 @@ class Hand(Look):
     def emphasis(self, cv, t):
         """問題文の強調のしるし（黒板＝下線、ノート＝マーカー）"""
         for k, path in enumerate(self.p_under):
-            self.stroke(cv, ("u", k), path, prog(t, 0.95 + 0.12 * k, 1.25 + 0.12 * k), self.em, 3.2)
+            self.stroke(cv, ("u", k), path, prog(t, Q0 + 0.85 + 0.12 * k, Q0 + 1.15 + 0.12 * k), self.em, 3.2)
 
     def header(self, cv, t):
         spr = self.tex([text_sprite(self.words["ラベル"], self.sub, "Bold", 26)], 3)[0]
@@ -123,8 +124,9 @@ class Hand(Look):
 
     def scene(self, cv, t):
         self.header(cv, t)
+        self.draw_hook(cv, t)
         self.emphasis_under(cv, t)
-        self.write_block(cv, self.qb, self.q_imgs, Q_X, self.q_y, prog(t, -0.25, 0.85))
+        self.write_block(cv, self.qb, self.q_imgs, Q_X, self.q_y, prog(t, Q0, Q0 + 0.9))
         self.emphasis(cv, t)
         self.choices(cv, t)
         self.countdown(cv, t)
@@ -177,6 +179,23 @@ class Hand(Look):
             self.write_spr(cv, let, x0 + lw + 8, self.cd_y - 58, f * 1.6 - 0.6, alpha=1 - q)
         self.trap(cv, t)
 
+    # ---------- つかみ ----------
+    def make_hook(self):
+        self.hb = self.hook_block(self.ink, self.em)
+        self.h_imgs = self.tex(self.hb.line_images(), 80)
+        self.h_top = (SAFE["top"] + SAFE["bottom"]) / 2 - self.hb.h / 2 - 20
+        y = self.h_top + self.hb.h + 18
+        self.p_hook = wobble_path([(CX - 130, y + 2), (CX + 130, y - 2)], self.seed + 81, 1.0, 10)
+
+    def draw_hook(self, cv, t):
+        """つかみの一言：最初の1こまから書き終えた状態で大きく見せ、HOOK の手前で消える"""
+        if t >= HOOK:
+            return
+        a = 1 - prog(t, HOOK - 0.25, HOOK)
+        dy = -24 * prog(t, HOOK - 0.25, HOOK)
+        self.write_block(cv, self.hb, self.h_imgs, CX, self.h_top + dy, 1.0, center=True, alpha=a)
+        self.stroke(cv, "hook", self.p_hook, ease_out(prog(t, 0.05, 0.4)), self.em, self.line_w + 2, alpha=a)
+
     # ---------- ひっかけ ----------
     def make_trap(self):
         head, _ = self.trap_parts()
@@ -197,35 +216,44 @@ class Hand(Look):
 
     # ---------- 締め ----------
     def make_end(self):
-        w = self.words
-        self.e_lines = []
-        items = [(self.theme.get("チャンネル名", ""), self.sub, "Bold", 28, 420), (w["締め1"], self.em, "Black", 104, 530),
-                 (w["締め2"], self.ink, "Black", 60, 642), (w["締め3"], self.ink, "Bold", 32, 760),
-                 (w.get("締め4", ""), self.em, "Bold", 30, 822)]
-        for k, (txt, col, wt, px, y) in enumerate(items):
-            if txt:
-                self.e_lines.append((self.tex([text_sprite(txt, col, wt, px)], 60 + k)[0], y))
-        bw = 300
-        self.p_end = wobble_path([(CX - bw / 2, 702), (CX + bw / 2, 699)], self.seed + 70, 1.0, 10)
+        """締め：「チャンネル登録」の呼びかけを大きく、その下に練習ページの案内（手で囲む）"""
+        self.eb_sub, self.eb_site = self.end_blocks(self.ink, self.em)
+        self.e_name = self.tex([text_sprite(self.theme.get("チャンネル名", ""), self.sub, "Bold", 28)], 60)[0]
+        self.e_sub = self.tex(self.eb_sub.line_images(), 61)
+        self.e_site = self.tex(self.eb_site.line_images(), 62)
+        self.e_y = 410
+        by = self.e_y + self.eb_sub.h + 22
+        self.p_end = wobble_path([(CX - 150, by + 1), (CX + 150, by - 2)], self.seed + 70, 1.0, 10)
+        self.site_y = by + 52 + 22
+        w, h = self.eb_site.w + 64, self.eb_site.h + 44
+        x0, y0 = CX - w / 2, self.site_y - 22
+        self.p_box = wobble_path([(x0 + 14, y0), (x0 + w, y0 + 2), (x0 + w - 2, y0 + h), (x0, y0 + h - 2), (x0 + 2, y0 - 6)],
+                                 self.seed + 71, 0.9, 10)
 
     def ending(self, cv, t):
         t0 = TR1 - 0.05
-        for k, (spr, y) in enumerate(self.e_lines):
-            f = prog(t, t0 + 0.16 * k, t0 + 0.16 * k + 0.3)
-            self.write_spr(cv, spr, CX, y - spr.height / dk.R / 2 + PAD, f, anchor_center=True)
-        self.stroke(cv, "end", self.p_end, prog(t, t0 + 0.55, t0 + 0.85), self.em, self.line_w + 1)
+        self.write_spr(cv, self.e_name, CX, 360 - self.e_name.height / dk.R / 2 + PAD, prog(t, t0, t0 + 0.2), anchor_center=True)
+        sub, site = self.eb_sub, self.eb_site
+        for k, img in enumerate(self.e_sub):
+            f = prog(t, t0 + 0.08 * k, t0 + 0.08 * k + 0.2)
+            self.write_spr(cv, img, CX, self.e_y + k * sub.line_h, f, anchor_center=True)
+        self.stroke(cv, "end", self.p_end, prog(t, t0 + 0.2, t0 + 0.4), self.em, self.line_w + 1)
+        for k, img in enumerate(self.e_site):
+            f = prog(t, t0 + 0.12 + 0.06 * k, t0 + 0.12 + 0.06 * k + 0.18)
+            self.write_spr(cv, img, CX, self.site_y + k * site.line_h, f, anchor_center=True)
+        self.stroke(cv, "box", self.p_box, prog(t, t0 + 0.2, t0 + 0.5), self.sub, self.line_w)
         if self.voice_credit:
             spr = text_sprite(self.voice_credit, self.sub, "Medium", 15)
-            paste(cv, spr, CX, 900, alpha=prog(t, t0 + 0.8, t0 + 1.1), anchor="cc")
+            paste(cv, spr, CX, 920, alpha=prog(t, t0 + 0.8, t0 + 1.1), anchor="cc")
 
     def sounds(self):
-        ev = [("write", -0.1, 0.30, 0.95)]
+        ev = [("chime", 0.0, 0.22, 0), ("circle", 0.05, 0.25, 0.35), ("write", Q0, 0.30, 0.9)]
         for ct in self.card_t:
             ev.append(("write", ct, 0.26, WRITE + 0.1))
-        ev.append(("write", 0.95, 0.15, 0.4))
+        ev.append(("write", Q0 + 0.85, 0.15, 0.4))
         for k in range(3):
             ev.append(("tap", COUNT0 + k, 0.55, 0))
             ev.append(("tick", COUNT0 + k, 0.25, 0))
         ev += [("chime", REVEAL, 0.26, 0), ("circle", REVEAL, 0.32, 0.4), ("write", REVEAL + 0.25, 0.2, 0.35),
-               ("write", TRAP, 0.26, 1.1), ("endchord", TR1 + 0.05, 0.12, 0), ("write", TR1 - 0.05, 0.24, 1.0)]
+               ("write", TRAP, 0.26, 1.1), ("endchord", TR1 + 0.05, 0.12, 0), ("write", TR1 - 0.05, 0.24, 0.8)]
         return ev

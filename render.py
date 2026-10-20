@@ -18,7 +18,7 @@ import drawkit as dk
 import audio
 import voice
 from styles import LOOKS
-from styles.base import DUR, COUNT0, REVEAL, TR0, TR1
+from styles.base import DUR, HOOK, COUNT0, REVEAL, TR0, TR1
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FPS = 30
@@ -44,6 +44,13 @@ def load_theme(cfg=None):
         theme["文言"][k], bad = safe_text(v)
         if bad:
             print("注意：文言にフォントに無い文字があります：", k, "".join(bad))
+    hooks = []
+    for v in theme.get("つかみ", []):
+        v, bad = safe_text(v)
+        if bad:
+            print("注意：つかみにフォントに無い文字があります：", v, "".join(bad))
+        hooks.append(v)
+    theme["つかみ"] = hooks
     for k in theme["型の選び方"]["型"]:
         if k not in LOOKS:
             raise ValueError("themes の 型 に知らない名前があります：" + k + "（使えるのは " + "・".join(LOOKS) + "）")
@@ -66,6 +73,14 @@ def choose_look(vid, theme, row=None):
     nums = re.findall(r"\d+", vid)
     n = int(nums[-1]) if nums else zlib.crc32(vid.encode("utf-8"))
     return names[n % len(names)]
+
+
+def choose_hook(vid, theme):
+    """台本IDの数字で、つかみの一言を日替わりに選ぶ（型とは別の周期なので、型とつかみの組み合わせも変わる）"""
+    hooks = theme.get("つかみ") or [""]
+    nums = re.findall(r"\d+", vid)
+    n = int(nums[-1]) if nums else zlib.crc32(vid.encode("utf-8"))
+    return hooks[n % len(hooks)]
 
 
 # ---------- 書き出し ----------
@@ -94,7 +109,7 @@ def make_look(sc, theme, style):
 
 
 TIMES = {"count0": COUNT0, "reveal": REVEAL, "ticks": [COUNT0 + k for k in range(3)],
-         "q": (0.3, COUNT0 - 0.1), "ans": (REVEAL + 0.1, REVEAL + 1.15), "trap": (REVEAL + 1.2, TR1 + 0.6)}
+         "q": (0.05, COUNT0 - 0.1), "ans": (REVEAL + 0.1, REVEAL + 1.15), "trap": (REVEAL + 1.2, TR1 + 0.6)}
 
 
 def render(sc, out_path, theme, style, info=None):
@@ -277,6 +292,7 @@ def _main(st):
             st["見送った台本"].append(vid if why == "台本が足りない" else vid + "（" + why + "）")
             continue
         style = choose_look(vid, theme, r)
+        sc["hook"] = choose_hook(vid, theme)
         info = {}
         try:
             # 作り直しのときは、別の名前で作ってから入れかえる（失敗したら古い動画を残す）
@@ -313,7 +329,8 @@ def _main(st):
 SAMPLE = {"q1": "「高度150m以上」の空域", "q2": "150mは*どこから*測る？", "a": "海抜高度（標高）", "b": "直下の地表・水面",
           "c": "飛行場の標点", "answer": "B", "trap": "ひっかけ：*海抜*ではない！"}
 
-SHEET_T = [(0.4, "問題"), (2.6, "3択"), (6.3, "カウントダウン"), (8.45, "正解"), (10.6, "ひっかけ"), ((TR0 + TR1) / 2, "転換"), (13.3, "締め")]
+SHEET_T = [(0.0, "つかみ"), (HOOK - 0.1, "問題へ"), (3.4, "問題と3択"), (6.3, "カウントダウン"), (8.45, "正解"), (10.6, "ひっかけ"),
+           ((TR0 + TR1) / 2, "転換"), (12.5, "締め"), (13.95, "最後")]
 
 
 def contact_sheet(sc, theme, style, path, guides=False):
@@ -343,6 +360,7 @@ def contact_sheet(sc, theme, style, path, guides=False):
 
 def make_samples(outdir, sc=None, guides_dir=None):
     theme = load_theme()
+    sc = dict(sc or SAMPLE, hook=choose_hook("v001", theme))
     os.makedirs(outdir, exist_ok=True)
     for style in LOOKS:
         out = os.path.join(outdir, style + ".mp4")
@@ -365,6 +383,7 @@ def render_csv(path, outdir, sheets=False):
         if sc is None:
             print("見送り：", vid, why); continue
         style = choose_look(vid, theme, r)
+        sc["hook"] = choose_hook(vid, theme)
         try:
             render(sc, os.path.join(outdir, vid + ".mp4"), theme, style)
             if sheets:

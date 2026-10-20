@@ -5,7 +5,7 @@ from PIL import Image, ImageDraw
 import drawkit as dk
 from drawkit import paste, prog, ease_out, ease_in_out, with_alpha, cached, shadow
 from .hand import Hand
-from .base import TRAP, TR0, TR1, Q_X, CARD_X, CARD_W
+from .base import Q0, TRAP, TR0, TR1, Q_X, CARD_X, CARD_W
 
 
 class Notebook(Hand):
@@ -47,7 +47,7 @@ class Notebook(Hand):
         mk = self.c["マーカー"]
         lh = self.qb.line_h
         for k, (i, x0, x1) in enumerate(self.qb.spans):
-            f = ease_out(prog(t, 0.9 + 0.1 * k, 1.15 + 0.1 * k))
+            f = ease_out(prog(t, Q0 + 0.8 + 0.1 * k, Q0 + 1.05 + 0.1 * k))
             if f <= 0:
                 continue
             w = (x1 - x0 + 8) * f

@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """3つの型に共通する「流れ」と「置き場所」。
 
-流れ（秒）：問題（0秒から）→ 3択 → カウントダウン（5〜8）→ 正解（8）→ ひっかけ（8.75〜）→ 締め（12前後〜14）
+流れ（秒）：つかみ（0〜1.2。1こま目から画面いっぱいの一言）→ 問題（1.05〜）→ 3択 → カウントダウン（5〜8）→ 正解（8）
+            → ひっかけ（8.75〜）→ 締め（12前後〜14。チャンネル登録と練習ページへの案内）
 置き場所：大事な文字は drawkit.SAFE の中（下の約4分の1と右端は YouTube の題名やボタンが重なるので避ける）
 """
 import zlib
@@ -9,6 +10,8 @@ from drawkit import SAFE, PAD, TextBlock, segments, rgba, paste, crop_reveal
 
 # ---------- 流れ（どの型も同じ） ----------
 DUR = 14.0
+HOOK = 1.2                       # つかみの一言を出しておく時間（0秒から。1こま目から見える）
+Q0 = HOOK - 0.15                 # 問題が入りはじめる時刻（つかみが消えるのと重ねる）
 COUNT0, COUNT1 = 5.0, 8.0       # カウントダウン 3→2→1
 REVEAL = 8.0                     # 正解を見せる
 TRAP = 8.75                      # ひっかけの説明
@@ -23,7 +26,7 @@ CARD_X, CARD_W = SAFE["left"], 564
 
 class Look:
     name = "base"
-    card_t = [0.45, 0.65, 0.85]   # 選択肢が出る時刻
+    card_t = [Q0 + 0.45, Q0 + 0.65, Q0 + 0.85]   # 選択肢が出る時刻
 
     def __init__(self, sc, theme, colors):
         self.theme, self.words = theme, theme["文言"]
@@ -33,6 +36,8 @@ class Look:
         self.sc = sc
         self.voice_credit = ""
         self.seed = zlib.crc32((sc["q1"] + sc.get("q2", "")).encode("utf-8"))
+        hooks = theme.get("つかみ") or [""]
+        self.hook = str(sc.get("hook") or hooks[0])
 
     def place(self, qb, card_h=108, gap=14, zone=250):
         """問題文の下に選択肢を並べ、その下の残り（SAFE の下端まで）をカウントダウンとひっかけに使う。
@@ -91,6 +96,19 @@ class Look:
         while tb.h > room and tb.px > min_px - 4:   # 高さに収まらなければ、さらに小さく
             tb = TextBlock([segments(body, base, accent)], weight, max_w, lines, tb.px - 2, tb.px - 2, line_h=1.28)
         return tb
+
+    # ---------- つかみ・締め ----------
+    def hook_block(self, base, accent, px=136, min_px=64, max_w=556):
+        """つかみの一言（画面いっぱいの太い文字。3行まで、真ん中ぞろえ）"""
+        return TextBlock([segments(self.hook, base, accent)], "Black", max_w, 3, px, min_px, line_h=1.12, align="center")
+
+    def end_blocks(self, base, accent, sub_base=None, sub_accent=None, max_w=560, site_w=500):
+        """締めの文字：チャンネル登録の呼びかけ（大きく）と、練習ページの案内（その下）"""
+        w = self.words
+        sub = TextBlock([segments(w.get("締め_登録", ""), base, accent)], "Black", max_w, 2, 84, 50, line_h=1.12, align="center")
+        site = TextBlock([segments(w.get("締め_案内", ""), sub_base or base, sub_accent or accent)], "Black", site_w, 2, 50, 32,
+                         line_h=1.2, align="center")
+        return sub, site
 
     # ---------- 書いている途中のように見せる ----------
     @staticmethod

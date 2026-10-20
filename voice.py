@@ -154,13 +154,18 @@ def lines(sc, words, cfg, times, sr):
         ans = [words["正解の読み"].format(letter), letter + "."]
     else:
         ans = [reading(words.get("正解", "正解は"), tbl) + "、" + letter + "。", letter + "。"]
-    plan = [("問題", [q] + ([q2] if q2 else []), times["q"]),     # 長すぎたら、2行目（問いの部分）だけを読む
+    hook = reading(sc.get("hook", ""), tbl)
+    qs = [q] + ([q2] if q2 else [])                            # 長すぎたら、2行目（問いの部分）だけを読む
+    if hook:                                                    # つかみの一言から読みはじめる（入らなければ、つかみを省く）
+        qs = [(hook + sep + x, 1.4) for x in qs] + qs          # つかみつきは、速くしすぎない（1.4倍まで）
+    plan = [("問題", qs, times["q"]),
             ("正解", ans, times["ans"]),
             ("ひっかけ", [reading(trap, tbl)], times["trap"])]
     out, skipped = [], []
     for name, texts, (t0, t1) in plan:
         for text in texts:
-            x = fit(text, t1 - t0, speed, sr)
+            text, top = text if isinstance(text, tuple) else (text, 1.7)
+            x = fit(text, t1 - t0, speed, sr, top)
             if x is not None:
                 out.append((t0, x))
                 break

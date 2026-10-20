@@ -6,12 +6,12 @@ from PIL import Image, ImageDraw
 import drawkit as dk
 from drawkit import (CX, SAFE, PAD, paste, prog, ease_out, ease_back, ease_in_out, with_alpha, rrect, circle, shadow,
                      text_sprite, cached, aa_shape)
-from .base import Look, COUNT0, COUNT1, REVEAL, TRAP, TR0, TR1, SWITCH, Q_X, CARD_X, CARD_W
+from .base import Look, HOOK, Q0, COUNT0, COUNT1, REVEAL, TRAP, TR0, TR1, SWITCH, Q_X, CARD_X, CARD_W
 
 
 class Motion(Look):
     name = "モーション"
-    card_t = [0.45, 0.65, 0.85]
+    card_t = [Q0 + 0.45, Q0 + 0.65, Q0 + 0.85]
 
     def __init__(self, sc, theme, colors):
         super().__init__(sc, theme, colors)
@@ -25,6 +25,10 @@ class Motion(Look):
         self.cards_done = [self.make_card(i, True) for i in range(3)]
         self.tb = self.trap_block(c["文字"], c["強調"], 516, min_px=24, room=self.trap_room(50), px=38)
         self.trap_img = self.make_trap()
+        self.hb = self.hook_block(c["カードの文字"], c.get("カードの強調", c["カードの文字"]))
+        self.hook_img = self.make_hook()
+        self.eb_sub, self.eb_site = self.end_blocks(c["文字"], c["強調"], c["カードの文字"], c.get("カードの強調", c["カードの文字"]))
+        self.end_imgs = (self.eb_sub.line_images(), self.eb_site.line_images())
 
     # ---------- 動かない部品 ----------
     def make_bg(self):
@@ -93,6 +97,28 @@ class Motion(Look):
         self.trap_pad = pad
         return img
 
+    def make_hook(self):
+        """つかみの画面（画面いっぱいの強調色の面に、太い大きな文字）。最初の1こまからそのまま見せる"""
+        c = self.c
+        img = Image.new("RGB", (dk.W, dk.H), c["強調"][:3])
+        d = ImageDraw.Draw(img, "RGBA")
+        R = dk.R
+        for (x, y, r, a) in ((660, 160, 280, 40), (20, 1160, 340, 34)):     # うすい大きな円（模様）
+            d.ellipse([(x - r) * R, (y - r) * R, (x + r) * R, (y + r) * R], fill=(255, 255, 255, a))
+        img = img.convert("RGBA")
+        spr = text_sprite(self.words["ラベル"], c["カードの文字"], "Bold", 26)
+        tw = spr.width / dk.R
+        img.alpha_composite(rrect(tw + 22, 44, 22, with_alpha(c["カードの文字"], 0), c["カードの文字"], 2),
+                            dest=(int((SAFE["left"] - 4) * R), int((104 - 4) * R)))
+        img.alpha_composite(spr, dest=(int((SAFE["left"] + 11) * R), int(126 * R - spr.height / 2)))
+        hb = self.hb
+        top = (SAFE["top"] + SAFE["bottom"]) / 2 - hb.h / 2 - 20
+        for i, li in enumerate(hb.line_images()):
+            img.alpha_composite(li, dest=(int((CX - hb.widths[i] / 2 - PAD) * R), int((top + i * hb.line_h - PAD) * R)))
+        bw = 220
+        img.alpha_composite(rrect(bw, 12, 6, c["カードの文字"]), dest=(int((CX - bw / 2 - 4) * R), int((top + hb.h + 22 - 4) * R)))
+        return img
+
     # ---------- 1こま ----------
     def frame(self, t):
         cv = self.bg.copy()
@@ -104,12 +130,23 @@ class Motion(Look):
             self.answer(cv, t)
         else:
             self.ending(cv, t)
+        self.hook_panel(cv, t)
         self.wipe(cv, t)
         return cv.convert("RGB")
 
+    def hook_panel(self, cv, t):
+        """つかみの面：少しだけ大きくなりながら見せ、HOOK の手前で上へ抜ける"""
+        if t >= HOOK:
+            return
+        p = ease_in_out(prog(t, HOOK - 0.3, HOOK))
+        if p <= 0:
+            cv.alpha_composite(self.hook_img)
+            return
+        paste(cv, self.hook_img, 0, -1280 * p)
+
     def header(self, cv, t):
         c = self.c
-        p = ease_out(prog(t, -0.3, 0.3))
+        p = ease_out(prog(t, Q0 - 0.3, Q0 + 0.3))
         spr = text_sprite(self.words["ラベル"], c["強調"], "Bold", 26)
         tw = spr.width / dk.R
         paste(cv, rrect(tw + 22, 44, 22, with_alpha(c["強調"], 34), c["強調"], 2), SAFE["left"] - 4 - 20 * (1 - p), 104 - 4, alpha=p)
@@ -117,12 +154,12 @@ class Motion(Look):
 
     def question(self, cv, t):
         c, qb = self.c, self.qb
-        pb = ease_out(prog(t, -0.3, 0.25))
+        pb = ease_out(prog(t, Q0 - 0.3, Q0 + 0.25))
         hh = qb.h * pb
         if hh > 1:
             paste(cv, rrect(6, max(1, hh - 8), 3, c["強調"]), SAFE["left"] - 4, self.q_y)
         for i, img in enumerate(self.q_imgs):
-            p = ease_out(prog(t, -0.25 + 0.08 * i, 0.25 + 0.08 * i))
+            p = ease_out(prog(t, Q0 - 0.25 + 0.08 * i, Q0 + 0.25 + 0.08 * i))
             paste(cv, img, Q_X - PAD - 40 * (1 - p), self.q_y + i * qb.line_h - PAD, alpha=p)
 
     def card_pos(self, i):
@@ -212,22 +249,28 @@ class Motion(Look):
         paste(cv, self.trap_img, CARD_X - pad + 4, self.trap_y - pad + 4 + 30 * (1 - q), alpha=q)
 
     def ending(self, cv, t):
-        c, w = self.c, self.words
-        e = ease_out(prog(t, SWITCH + 0.1, SWITCH + 0.45))
-        paste(cv, text_sprite(self.theme.get("チャンネル名", ""), c["うすい文字"], "Bold", 28), CX, 420, alpha=e, anchor="cc")
-        paste(cv, text_sprite(w["締め1"], c["強調"], "Black", 110), CX, 530, alpha=e,
-              scale=0.7 + 0.3 * ease_back(prog(t, SWITCH + 0.1, SWITCH + 0.5)), anchor="cc")
-        paste(cv, text_sprite(w["締め2"], c["文字"], "Black", 64), CX, 644 + 16 * (1 - e), alpha=e, anchor="cc")
-        bw = 300 * ease_out(prog(t, SWITCH + 0.35, SWITCH + 0.7))
+        """締め：「チャンネル登録」の呼びかけを大きく、その下に練習ページの案内（強調色の札）"""
+        c = self.c
+        e = ease_out(prog(t, SWITCH + 0.05, SWITCH + 0.35))
+        paste(cv, text_sprite(self.theme.get("チャンネル名", ""), c["うすい文字"], "Bold", 28), CX, 360, alpha=e, anchor="cc")
+        sub, site = self.eb_sub, self.eb_site
+        sub_imgs, site_imgs = self.end_imgs
+        y0 = 410
+        sc = 0.8 + 0.2 * ease_back(prog(t, SWITCH + 0.05, SWITCH + 0.4))
+        for i, li in enumerate(sub_imgs):
+            paste(cv, li, CX, y0 + (i + 0.5) * sub.line_h, alpha=e, scale=sc, anchor="cc")
+        bw = 300 * ease_out(prog(t, SWITCH + 0.2, SWITCH + 0.5))
+        by = y0 + sub.h + 22
         if bw > 2:
-            paste(cv, rrect(bw, 10, 5, c["強調"]), CX - bw / 2 - 4, 700 - 4)
-        q = ease_out(prog(t, SWITCH + 0.5, SWITCH + 0.85))
-        paste(cv, text_sprite(w["締め3"], c["文字"], "Bold", 32), CX, 760 + 12 * (1 - q), alpha=q, anchor="cc")
-        if w.get("締め4"):
-            q4 = ease_out(prog(t, SWITCH + 0.7, SWITCH + 1.05))
-            paste(cv, text_sprite(w["締め4"], c["強調"], "Bold", 30), CX, 822 + 12 * (1 - q4), alpha=q4, anchor="cc")
+            paste(cv, rrect(bw, 10, 5, c["強調"]), CX - bw / 2 - 4, by - 4)
+        q = ease_out(prog(t, SWITCH + 0.25, SWITCH + 0.55))
+        bh = site.h + 44
+        top = by + 52 + 16 * (1 - q)
+        paste(cv, rrect(site.w + 64, bh, 26, c["強調"]), CX - (site.w + 64) / 2 - 4, top - 4, alpha=q)
+        for i, li in enumerate(site_imgs):
+            paste(cv, li, CX, top + 22 + (i + 0.5) * site.line_h, alpha=q, anchor="cc")
         if self.voice_credit:
-            paste(cv, text_sprite(self.voice_credit, c["うすい文字"], "Medium", 15), CX, 900, alpha=q, anchor="cc")
+            paste(cv, text_sprite(self.voice_credit, c["うすい文字"], "Medium", 15), CX, 920, alpha=q, anchor="cc")
 
     def wipe(self, cv, t):
         if not (TR0 <= t <= TR1):
@@ -240,11 +283,11 @@ class Motion(Look):
         ImageDraw.Draw(cv).polygon([(px * R, py * R) for px, py in pts], fill=self.c["強調"])
 
     def sounds(self):
-        ev = [("swoosh", 0.0, 0.16, 0.35)]
+        ev = [("chime", 0.0, 0.22, 0), ("swoosh", HOOK - 0.3, 0.2, 0.35)]
         for i, ct in enumerate(self.card_t):
             ev.append(("pop" + str(i), ct + 0.05, 0.36, 0))
         for k in range(3):
             ev.append(("tick", COUNT0 + k, 0.5, 0))
         ev += [("chime", REVEAL, 0.3, 0), ("sparkle", REVEAL + 0.08, 0.16, 0), ("pop1", TRAP + 0.05, 0.22, 0),
-               ("swoosh", TR0, 0.24, 0.45), ("endchord", SWITCH + 0.1, 0.12, 0)]
+               ("swoosh", TR0, 0.24, 0.45), ("endchord", SWITCH + 0.1, 0.12, 0), ("pop2", SWITCH + 0.3, 0.2, 0)]
         return ev
