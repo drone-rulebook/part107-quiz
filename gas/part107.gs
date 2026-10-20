@@ -33,9 +33,15 @@ function enSetup() {
   catch (e) {
     ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'enHourly').forEach(t => ScriptApp.deleteTrigger(t));
     enLog_(e.message);
+    let who = '';
+    try { who = Session.getEffectiveUser().getEmail(); } catch (err) {}
+    if (!e.channel) {
+      throw new Error('このスクリプトのアカウント（' + who + '）には、アカウント本人の YouTube チャンネルが見つかりませんでした。'
+        + 'このアカウントで YouTube を開き、右上のアイコンから「チャンネルを作成」をしてから、もう一度 enSetup を実行してください。');
+    }
     ScriptApp.invalidateAuth();
-    throw new Error('投稿先が英語用のチャンネルではありませんでした（' + (e.channel || 'なし') + '）。この仕組みの許可だけを取り消しました（日本語版には影響しません）。'
-      + 'もう一度 enSetup を実行し、許可の途中で「アカウントまたはブランド アカウントを選択」の画面が出たら、英語用のチャンネルを選んでください。');
+    throw new Error('投稿先が日本語版のチャンネル（' + e.channel + '）でした（スクリプトのアカウント：' + who + '）。この仕組みの許可だけを取り消しました（日本語版には影響しません）。'
+      + '英語用のチャンネルを持つアカウントで作ったスプレッドシートから、enSetup を実行してください。');
   }
   const ss = SpreadsheetApp.getActive();
   enSheet_(EN_CONF.SHEET, EN_HEAD);
