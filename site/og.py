@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""共有したときの画像（1200×630）を Pillow と fonts/ で作る。build.py から呼ぶ。
+"""共有したときの画像（1200×630）を Pillow と fonts/ で作る。build.py から呼ぶ（英語版）。
 
 答えは画像に入れない（問題と3択だけ）。フォントに無い文字がある問題は、サイト共通の画像を使う。
 """
@@ -55,17 +55,28 @@ def segments(text, base, accent):
 
 
 def wrap(segs, f, max_w):
-    """色つきの文字列を、横幅に収まるように行に分ける（1文字ずつ）。"""
-    lines, cur, cur_w = [], [], 0.0
+    """色つきの文字列を、横幅に収まるように行に分ける（英語なので、単語の途中では切らない）。"""
+    words, cur = [], []                      # 単語（空白までのかたまり）ごとに [(文字, 色)]
     for s, col in segs:
         for ch in s:
-            w = f.getlength(ch)
-            if cur and cur_w + w > max_w:
-                lines.append(cur); cur, cur_w = [], 0.0
-            if cur or ch != " ":
-                cur.append((ch, col)); cur_w += w
+            if ch == " ":
+                if cur:
+                    words.append(cur); cur = []
+            else:
+                cur.append((ch, col))
     if cur:
-        lines.append(cur)
+        words.append(cur)
+    lines, line, line_w = [], [], 0.0
+    sp = f.getlength(" ")
+    for wd in words:
+        w = sum(f.getlength(ch) for ch, _ in wd)
+        if line and line_w + sp + w > max_w:
+            lines.append(line); line, line_w = [], 0.0
+        if line:
+            line.append((" ", wd[0][1])); line_w += sp
+        line += wd; line_w += w
+    if line:
+        lines.append(line)
     return lines
 
 

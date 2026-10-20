@@ -9,3 +9,7 @@
 - 見た目・文言：themes/part107.json（「見た目の版」を上げると、まだ出していない動画を作り直す）
 - 投稿：スプレッドシートのスクリプト（part107.gs）が毎日 9時台（日本時間）に YouTube に出す
 - 結果：status.json
+- 練習ページ（英語・無料）：site/build.py が台本シートの公開CSVから作り、.github/workflows/site.yml が毎日 GitHub Pages に出す（https://drone-rulebook.github.io/part107-quiz/ ）
+  - はじめに1回だけ：置き場の Settings → Pages の Source を「GitHub Actions」にする
+  - 文言・色・講座の紹介リンク（course）は site/site.json。メモに「限定公開」か「止める」がある行は出さない
+  - 手元で確かめる：python site/build.py --csv tests/sample_site_en.csv --out _site

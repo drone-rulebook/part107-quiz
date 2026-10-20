@@ -3,3 +3,4 @@ __pycache__/
 *.part.mp4
 *.new.mp4
 models/
+_site/

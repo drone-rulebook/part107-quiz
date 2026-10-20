@@ -11,6 +11,8 @@ on:
       - "status.json"
       - "README.md"
       - "tests/**"
+      - "site/**"
+      - ".github/workflows/site.yml"
   workflow_dispatch:
 
 permissions:

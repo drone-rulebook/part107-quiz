@@ -1,0 +1,58 @@
+name: 練習ページをつくる（英語版・GitHub Pages）
+
+# 台本シートの公開CSV（config.json の csv_url）から、英語の無料練習ページを作って GitHub Pages に出す。
+# はじめに1回だけ：置き場の Settings → Pages → Build and deployment の Source を「GitHub Actions」にする。
+
+on:
+  schedule:
+    - cron: "41 1 * * *"     # 毎日 10時41分（日本時間）。9時台の投稿で付いた動画のリンクも入る
+  push:                      # サイトの仕組みや設定を変えたときにも作り直す
+    branches: [main]
+    paths:
+      - "site/**"
+      - "config.json"
+      - "fonts/**"
+      - ".github/workflows/site.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Pythonの部品を入れる
+        run: pip install -q pillow
+
+      - name: ページを作る
+        run: python site/build.py --out _site
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
