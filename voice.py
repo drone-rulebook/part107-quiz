@@ -184,11 +184,22 @@ def lines(sc, words, cfg, times, sr, cta=False, question=True):
              ("ひっかけ", [reading(trap, tbl)], times["trap"])]
     if cta and times.get("cta") and words.get("締めの声"):
         plan.append(("締めの声", [reading(words["締めの声"], tbl)], times["cta"]))
-    out, skipped = [], []
+    out, skipped, got = [], [], {}
     for name, texts, (t0, t1) in plan:
         x, _ = say(texts, t1 - t0, speed, sr)
         if x is not None:
+            got[name] = (t0, x)
             out.append((t0, x))
         else:
             skipped.append(name)
+    # 締めの声がある回でひっかけが入らなかったときは、締めの声をやめて、その時間までひっかけに使う（ひっかけを優先）
+    if "ひっかけ" in skipped and cta and times.get("cta"):
+        t0 = times["trap"][0]
+        x, _ = say([reading(trap, tbl)], times["cta"][1] - t0, speed, sr)
+        if x is not None:
+            if "締めの声" in got:
+                out.remove(got["締めの声"])
+                skipped.append("締めの声")
+            out.append((t0, x))
+            skipped.remove("ひっかけ")
     return out, skipped
