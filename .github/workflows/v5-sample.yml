@@ -1,0 +1,61 @@
+name: 版5の見本（英語・一時的）
+
+on:
+  push:
+    branches: [en-v5-sample]
+    paths-ignore:
+      - "v5_samples/**"
+
+permissions:
+  contents: write
+
+jobs:
+  sample:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q pillow numpy imageio-ffmpeg kokoro-onnx
+      - uses: actions/cache@v4
+        with:
+          path: models
+          key: kokoro-v1.0-model-files-v1.1
+      - run: |
+          mkdir -p models
+          B=https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1
+          [ -s models/kokoro-v1.0.onnx ] || curl -sSfL -o models/kokoro-v1.0.onnx $B/kokoro-v1.0.onnx
+          [ -s models/voices-v1.0.bin ] || curl -sSfL -o models/voices-v1.0.bin $B/voices-v1.0.bin
+      - name: 見本をつくる
+        run: |
+          rm -rf v5_samples && mkdir -p v5_samples
+          python - <<'PY'
+          import json, sys
+          sys.path.insert(0, ".")
+          import render
+          cfg = render.load_config(); th = render.load_theme(cfg)
+          q = json.load(open("inbox/queue.json", encoding="utf-8"))["scripts"]
+          out = {}
+          for qid in ("E007", "E008", "E009", "E042"):
+              s = next(x for x in q if x["qid"] == qid)
+              vid = "e" + qid[1:]
+              r = {"問題1行目": s["q1"], "問題2行目": s["q2"], "選択肢A": s["a"], "選択肢B": s["b"], "選択肢C": s["c"], "正解": s["answer"], "ひっかけ": s["trap"]}
+              sc, why = render.script_of(r)
+              if sc is None:
+                  out[vid] = "見送り：" + why; continue
+              style = render.choose_look(vid, th, r)
+              info = {}
+              render.render(sc, f"v5_samples/{vid}_{style}.mp4", th, style, info, vid=vid)
+              out[vid] = dict(info, 型=style)
+          json.dump(out, open("v5_samples/info.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+          print(json.dumps(out, ensure_ascii=False, indent=1))
+          PY
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add v5_samples
+          git commit -q -m "版5の見本（英語の声）" || echo none
+          git push -q
