@@ -136,39 +136,59 @@ def fit(text, window, speed, sr, max_speed=1.7):
     return None
 
 
-def lines(sc, words, cfg, times, sr):
-    """動画の中で読む声のリスト [(開始の秒, 音)] と、読めなかった所の名前"""
+def _sep():
+    """問題の1行目と2行目のつなぎ（英語の声なら空白、日本語なら「。」）"""
+    return " " if _engine.get("name") == "Kokoro" else "。"
+
+
+def question_texts(sc, tbl):
+    """問題の読み上げの候補（1・2行目の全文 → 長すぎたら2行目（問いの部分）だけ）。
+    英語の声では、全文は速くしすぎない（1.4倍まで。それより速いと聞き取りにくいので、2行目だけにする）"""
+    q2 = reading(sc["q2"], tbl) if sc.get("q2") else ""
+    q = reading(sc["q1"], tbl) + (_sep() + q2 if q2 else "")
+    first = (q, 1.4) if _engine.get("name") == "Kokoro" and q2 else q
+    return [first] + ([q2] if q2 else [])
+
+
+def say(texts, window, speed, sr):
+    """texts を順に試し、window 秒に収まる最初の音と、その文を返す（どれも収まらなければ (None, None)）。
+    texts の1つは 文 か (文, いちばん速い倍率)"""
+    for item in texts:
+        text, top = item if isinstance(item, tuple) else (item, 1.7)
+        x = fit(text, window, speed, sr, top)
+        if x is not None:
+            return x, item
+    return None, None
+
+
+def lines(sc, words, cfg, times, sr, cta=False, question=True):
+    """動画の中で読む声のリスト [(開始の秒, 音)] と、読めなかった所の名前。
+    times は styles.base.Timeline.times()。question=False なら問題は読まない（先に別で読んで、時刻表を合わせたとき）。
+    cta=True なら、締めの声（文言「締めの声」）も times["cta"] の間に読む。"""
     tbl = cfg.get("読み替え", {})
     speed = float(cfg.get("速さ", 1.15))
-    en = _engine.get("name") == "Kokoro"
-    sep = " " if en else "。"
-    q = reading(sc["q1"], tbl) + (sep + reading(sc["q2"], tbl) if sc.get("q2") else "")
     letter = sc["answer"].strip().upper()
     trap = sc["trap"]
     for mark in ("：", ":"):
         if mark in trap and 0 < len(trap.split(mark, 1)[0].replace("*", "")) <= 8:
             trap = trap.split(mark, 1)[1].strip()
             break
-    q2 = reading(sc["q2"], tbl) if sc.get("q2") else ""
     if words.get("正解の読み"):                        # 例："The answer is {}."
         ans = [words["正解の読み"].format(letter), letter + "."]
     else:
         ans = [reading(words.get("正解", "正解は"), tbl) + "、" + letter + "。", letter + "。"]
-    hook = reading(sc.get("hook", ""), tbl)
-    qs = [q] + ([q2] if q2 else [])                            # 長すぎたら、2行目（問いの部分）だけを読む
-    if hook:                                                    # つかみの一言から読みはじめる（入らなければ、つかみを省く）
-        qs = [(hook + sep + x, 1.4) for x in qs] + qs          # つかみつきは、速くしすぎない（1.4倍まで）
-    plan = [("問題", qs, times["q"]),
-            ("正解", ans, times["ans"]),
-            ("ひっかけ", [reading(trap, tbl)], times["trap"])]
+    plan = []
+    if question:
+        plan.append(("問題", question_texts(sc, tbl), times["q"]))      # 長すぎたら、2行目（問いの部分）だけを読む
+    plan += [("正解", ans, times["ans"]),
+             ("ひっかけ", [reading(trap, tbl)], times["trap"])]
+    if cta and times.get("cta") and words.get("締めの声"):
+        plan.append(("締めの声", [reading(words["締めの声"], tbl)], times["cta"]))
     out, skipped = [], []
     for name, texts, (t0, t1) in plan:
-        for text in texts:
-            text, top = text if isinstance(text, tuple) else (text, 1.7)
-            x = fit(text, t1 - t0, speed, sr, top)
-            if x is not None:
-                out.append((t0, x))
-                break
+        x, _ = say(texts, t1 - t0, speed, sr)
+        if x is not None:
+            out.append((t0, x))
         else:
             skipped.append(name)
     return out, skipped

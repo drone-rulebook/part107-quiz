@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""二等学科ひっかけクイズの縦型ショート動画（1080x1920・30fps・14秒）を、台本から作る。
+"""Part 107 ひっかけ問題（英語）の縦型ショート動画（1080x1920・30fps・約11秒。読み上げの長さや締めの声で少し伸びる）を、台本から作る。
 
 使い方
   python render.py                     … 公開した「動画台本」シート（config.json の csv_url）を読み、近い日の「待ち」の台本を動画にする。
@@ -9,8 +9,10 @@
   python render.py --csv 台本.csv 出力先  … CSV の全行を（日付や状態に関係なく）出力先に作る（確かめ用）
 
 絵・動き・文字・効果音・BGM はすべてプログラムで作る（素材ファイルは使わない。フォントだけ fonts/ に同梱）。
-台本の文字は、*で囲んだところを強調する（例：150mは*どこから*測る？）。
+台本の文字は、*で囲んだところを強調する（例：How far *below* a cloud must you stay?）。選択肢C が空の台本は2択（Legal or not? など）。
 見た目の型（styles/）は3つ。台本IDで日替わりに選ぶ（themes/*.json の「型の選び方」）。
+見た目の版5：1こま目から問題の全文、カウントダウン3.4秒から、締めの画面はなく最後に1こま目と同じ絵へ戻る（くり返し再生がつながる）。
+締めの声（themes の「締めの声を使う」）を入れる動画は、戻る前に「毎日」の帯と声が2.0秒入る。
 """
 import csv, datetime, io, json, os, re, shutil, subprocess, sys, unicodedata, urllib.request, zlib
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -18,11 +20,10 @@ import drawkit as dk
 import audio
 import voice
 from styles import LOOKS
-from styles.base import DUR, HOOK, COUNT0, REVEAL, TR0, TR1
+from styles import base as B
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FPS = 30
-N = int(FPS * DUR)
 SIZES = {"1080x1920": (1080, 1920), "720x1280": (720, 1280)}
 MAX_MB = 2.4          # これより大きくなったら、少し圧縮しなおす
 TARGET_MB = 2.0
@@ -44,13 +45,6 @@ def load_theme(cfg=None):
         theme["文言"][k], bad = safe_text(v)
         if bad:
             print("注意：文言にフォントに無い文字があります：", k, "".join(bad))
-    hooks = []
-    for v in theme.get("つかみ", []):
-        v, bad = safe_text(v)
-        if bad:
-            print("注意：つかみにフォントに無い文字があります：", v, "".join(bad))
-        hooks.append(v)
-    theme["つかみ"] = hooks
     for k in theme["型の選び方"]["型"]:
         if k not in LOOKS:
             raise ValueError("themes の 型 に知らない名前があります：" + k + "（使えるのは " + "・".join(LOOKS) + "）")
@@ -75,14 +69,6 @@ def choose_look(vid, theme, row=None):
     return names[n % len(names)]
 
 
-def choose_hook(vid, theme):
-    """台本IDの数字で、つかみの一言を日替わりに選ぶ（型とは別の周期なので、型とつかみの組み合わせも変わる）"""
-    hooks = theme.get("つかみ") or [""]
-    nums = re.findall(r"\d+", vid)
-    n = int(nums[-1]) if nums else zlib.crc32(vid.encode("utf-8"))
-    return hooks[n % len(hooks)]
-
-
 # ---------- 書き出し ----------
 def ffmpeg_bin():
     p = shutil.which("ffmpeg")
@@ -102,48 +88,71 @@ def read_tag(path):
     return m.group(1) if m else ""
 
 
-def make_look(sc, theme, style):
+def make_look(sc, theme, style, vid=None):
     w, h = SIZES.get(theme.get("画質", "1080x1920"), SIZES["1080x1920"])
     dk.setup(w, h)
-    return LOOKS[style](sc, theme, theme["色"][style])
+    return LOOKS[style](sc, theme, theme["色"][style], vid)
 
 
-TIMES = {"count0": COUNT0, "reveal": REVEAL, "ticks": [COUNT0 + k for k in range(3)],
-         "q": (0.05, COUNT0 - 0.1), "ans": (REVEAL + 0.1, REVEAL + 1.15), "trap": (REVEAL + 1.2, TR1 + 0.6)}
+def plan_voice(look, sc, theme, vcfg):
+    """声の予定を立てる。問題の読み上げが長いときは、読み終わるまでカウントダウンから後ろをずらす（look.retime）。
+    返り値：([(開始の秒, 音)], 読めなかった所の名前)"""
+    tbl = vcfg.get("読み替え", {})
+    speed = float(vcfg.get("速さ", 1.15))
+    texts = voice.question_texts(sc, tbl)
+    q0 = look.T.times()["q"][0]
+    latest = B.COUNT0 + look.q_extra_max() - 0.1          # 問題の声が終わってよい、いちばん遅い時刻
+    qx, used = voice.say(texts, latest - q0, speed, audio.SR)
+    out, skipped = [], []
+    if qx is not None:
+        extra = max(0.0, q0 + len(qx) / audio.SR + 0.12 - (B.COUNT0 - 0.1))
+        if look.n == 2 and used != texts[0]:
+            extra = max(extra, B.READ_EXTRA2)               # 2択で場面の文を読めなかったときは、読む時間を残す
+        look.retime(min(extra, look.q_extra_max()))
+        out.append((q0, qx))
+    else:
+        skipped.append("問題")
+    rest, sk = voice.lines(sc, theme["文言"], vcfg, look.T.times(), audio.SR, cta=look.T.cta, question=False)
+    return out + rest, skipped + sk
 
 
-def render(sc, out_path, theme, style, info=None):
-    """台本 sc を style の見た目で動画にして out_path に置く。info（dict）に声の結果などを書く。"""
+def render(sc, out_path, theme, style, info=None, vid=None):
+    """台本 sc を style の見た目で動画にして out_path に置く。info（dict）に声の結果・締めの声・長さを書く。"""
     info = info if info is not None else {}
-    look = make_look(sc, theme, style)
+    look = make_look(sc, theme, style, vid)
     vcfg = theme.get("声", {})
     voices = []
     if vcfg.get("使う"):
         if voice.available(vcfg):
-            voices, skipped = voice.lines(sc, theme["文言"], vcfg, TIMES, audio.SR)
+            voices, skipped = plan_voice(look, sc, theme, vcfg)
             if voices:
                 look.voice_credit = safe_text(vcfg.get("クレジット", ""))[0]
             info["声"] = "オン" + ("（時間内に読めず省いた所：" + "・".join(skipped) + "）" if skipped else "")
         else:
             info["声"] = "オン（読み上げの部品が無いので声なし）"
+    info["締めの声"] = "あり" if look.T.cta else "なし"
+    info["長さ"] = look.dur
+    times = look.T.times()
+    dur = look.dur
+    n_frames = int(round(FPS * dur))
     tmp_wav = out_path + ".wav"
     part = out_path + ".part.mp4"
     try:
-        audio.build(look, tmp_wav, DUR, TIMES, bgm=theme.get("BGM", True), voices=voices)
+        audio.build(look, tmp_wav, dur, times, bgm=theme.get("BGM", True), voices=voices)
         tag = f"look={look_tag(theme)};style={style}"
         cmd = [ffmpeg_bin(), "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{dk.W}x{dk.H}", "-r", str(FPS), "-i", "-",
                "-i", tmp_wav, "-c:v", "libx264", "-preset", "slow", "-crf", "23", "-tune", "animation", "-pix_fmt", "yuv420p",
                "-c:a", "aac", "-b:a", "128k", "-metadata", "comment=" + tag, "-movflags", "+faststart", "-shortest", part]
         p = subprocess.Popen(cmd, stdin=subprocess.PIPE)
         try:
-            for i in range(N):
+            for i in range(n_frames):
                 p.stdin.write(look.frame(i / FPS).tobytes())
         finally:
             p.stdin.close()
         if p.wait() != 0:
             raise RuntimeError("ffmpeg に失敗しました")
         if os.path.getsize(part) > MAX_MB * 1e6:      # 大きすぎたら、決めた大きさに収まるように圧縮しなおす
-            kbps = int((TARGET_MB * 8e6 / DUR - 128e3) / 1000)
+            kbps = int((TARGET_MB * 8e6 / dur - 128e3) / 1000)
             again = part + ".2.mp4"
             subprocess.run([ffmpeg_bin(), "-y", "-loglevel", "error", "-i", part, "-c:v", "libx264", "-preset", "slow", "-b:v", f"{kbps}k",
                             "-maxrate", f"{int(kbps * 1.3)}k", "-bufsize", f"{kbps * 2}k", "-pix_fmt", "yuv420p", "-c:a", "copy",
@@ -210,7 +219,8 @@ def script_of(r):
     sc = {"q1": r.get("問題1行目", ""), "q2": r.get("問題2行目", ""), "a": r.get("選択肢A", ""), "b": r.get("選択肢B", ""),
           "c": r.get("選択肢C", ""), "answer": r.get("正解", ""), "trap": r.get("ひっかけ", "")}
     sc = {k: str(v or "").strip() for k, v in sc.items()}
-    if not (sc["q1"] and sc["a"] and sc["b"] and sc["c"] and sc["trap"] and sc["answer"].upper() in ("A", "B", "C")):
+    ok = ("A", "B", "C") if sc["c"] else ("A", "B")          # 選択肢C が空なら2択（これ違反？など）
+    if not (sc["q1"] and sc["a"] and sc["b"] and sc["trap"] and sc["answer"].upper() in ok):
         return None, "台本が足りない"
     bad = []
     for k in ("q1", "q2", "a", "b", "c", "trap"):
@@ -235,7 +245,8 @@ def read_rows(cfg):
 
 def main():
     st = {"結果": "", "台本の行数": 0, "作った動画": [], "見送った台本": [], "作れなかった台本": [], "消した動画": 0,
-          "次に作る予定": [], "エラー": "", "見た目の版": "", "型": {}, "作り直した動画": [], "作り直せなかった動画": [], "声": ""}
+          "次に作る予定": [], "エラー": "", "見た目の版": "", "型": {}, "締めの声": {}, "長さ（秒）": {},
+          "作り直した動画": [], "作り直せなかった動画": [], "声": ""}
     try:
         _main(st)
     except Exception as e:
@@ -292,12 +303,11 @@ def _main(st):
             st["見送った台本"].append(vid if why == "台本が足りない" else vid + "（" + why + "）")
             continue
         style = choose_look(vid, theme, r)
-        sc["hook"] = choose_hook(vid, theme)
         info = {}
         try:
             # 作り直しのときは、別の名前で作ってから入れかえる（失敗したら古い動画を残す）
             tmp = out + ".new.mp4" if redo else out
-            render(sc, tmp, theme, style, info)
+            render(sc, tmp, theme, style, info, vid=vid)
             if redo:
                 os.replace(tmp, out)
         except Exception as e:
@@ -310,6 +320,8 @@ def _main(st):
         if info.get("声"):
             st["声"] = info["声"]
         st["型"][vid] = style
+        st["締めの声"][vid] = info.get("締めの声", "")
+        st["長さ（秒）"][vid] = info.get("長さ")
         print(("作り直し：" if redo else "作成："), vid, d, style)
         (st["作り直した動画"] if redo else st["作った動画"]).append(vid)
     st["次に作る予定"] = st["次に作る予定"][:3]
@@ -326,17 +338,25 @@ def _main(st):
 
 
 # ---------- 確かめ用 ----------
-SAMPLE = {"q1": "「高度150m以上」の空域", "q2": "150mは*どこから*測る？", "a": "海抜高度（標高）", "b": "直下の地表・水面",
-          "c": "飛行場の標点", "answer": "B", "trap": "ひっかけ：*海抜*ではない！"}
+SAMPLE = {"q1": "Cloud clearance rule.", "q2": "How far *below* a cloud must you stay?", "a": "500 ft", "b": "1,000 ft",
+          "c": "2,000 ft", "answer": "A", "trap": "Trap: 2,000 ft is the *horizontal* distance!"}
 
-SHEET_T = [(0.0, "つかみ"), (HOOK - 0.1, "問題へ"), (3.4, "問題と3択"), (6.3, "カウントダウン"), (8.45, "正解"), (10.6, "ひっかけ"),
-           ((TR0 + TR1) / 2, "転換"), (12.5, "締め"), (13.95, "最後")]
+def sheet_times(look):
+    """見せ場の時刻（1こま目・3択・カウントダウン・正解・ひっかけ・締めの声・転換・最後）"""
+    T = look.T
+    ts = [(0.0, "1こま目"), (1.4, "3択"), (T.count0 + 1.2, "カウントダウン"), (T.reveal + 0.45, "正解"),
+          (min(T.trap + 1.7, (T.cta0 or T.tr0) - 0.1), "ひっかけ")]
+    if T.cta:
+        ts.append((T.cta0 + 1.1, "締めの声"))
+    ts += [(T.sw, "転換"), (T.dur - 1.0 / FPS, "最後")]
+    return ts
 
 
-def contact_sheet(sc, theme, style, path, guides=False):
+def contact_sheet(sc, theme, style, path, guides=False, vid=None):
     """見せ場の静止画を横に並べた1枚の画像。guides=True なら、YouTube の文字やボタンが重なる所を赤く示す。"""
     from PIL import Image, ImageDraw
-    look = make_look(sc, theme, style)
+    look = make_look(sc, theme, style, vid)
+    SHEET_T = sheet_times(look)
     tw, th = 360, 640
     lab_h = 44
     sheet = Image.new("RGB", (tw * len(SHEET_T) + 8 * (len(SHEET_T) + 1), th + lab_h + 16), (235, 236, 240))
@@ -358,16 +378,15 @@ def contact_sheet(sc, theme, style, path, guides=False):
     sheet.save(path, optimize=True)
 
 
-def make_samples(outdir, sc=None, guides_dir=None):
+def make_samples(outdir, sc=None, guides_dir=None, vid=None):
     theme = load_theme()
-    sc = dict(sc or SAMPLE, hook=choose_hook("v001", theme))
     os.makedirs(outdir, exist_ok=True)
     for style in LOOKS:
         out = os.path.join(outdir, style + ".mp4")
-        render(sc or SAMPLE, out, theme, style)
-        contact_sheet(sc or SAMPLE, theme, style, os.path.join(outdir, style + ".png"))
+        render(sc or SAMPLE, out, theme, style, vid=vid)
+        contact_sheet(sc or SAMPLE, theme, style, os.path.join(outdir, style + ".png"), vid=vid)
         if guides_dir:
-            contact_sheet(sc or SAMPLE, theme, style, os.path.join(guides_dir, style + "_目安つき.png"), guides=True)
+            contact_sheet(sc or SAMPLE, theme, style, os.path.join(guides_dir, style + "_目安つき.png"), guides=True, vid=vid)
         print("見本：", out)
 
 
@@ -383,12 +402,12 @@ def render_csv(path, outdir, sheets=False):
         if sc is None:
             print("見送り：", vid, why); continue
         style = choose_look(vid, theme, r)
-        sc["hook"] = choose_hook(vid, theme)
         try:
-            render(sc, os.path.join(outdir, vid + ".mp4"), theme, style)
+            info = {}
+            render(sc, os.path.join(outdir, vid + ".mp4"), theme, style, info, vid=vid)
             if sheets:
-                contact_sheet(sc, theme, style, os.path.join(outdir, vid + ".png"), guides=True)
-            print("作成：", vid, style)
+                contact_sheet(sc, theme, style, os.path.join(outdir, vid + ".png"), guides=True, vid=vid)
+            print("作成：", vid, style, f"{info.get('長さ')}秒", "締めの声" + info.get("締めの声", ""))
         except Exception as e:
             bad += 1
             print("作れませんでした：", vid, type(e).__name__, e)

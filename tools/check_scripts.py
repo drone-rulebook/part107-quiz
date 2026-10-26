@@ -10,6 +10,7 @@ sys.path.insert(0, HERE)
 os.chdir(HERE)
 import render
 from styles import LOOKS
+from styles import base as B
 
 LIMITS = {"title": 70, "q1": 30, "q2": 48, "a": 20, "b": 20, "c": 20, "trap": 52, "explain": 260, "basis": 120}
 NEED = ["qid", "title", "q1", "q2", "a", "b", "c", "answer", "trap", "explain", "basis"]
@@ -47,19 +48,22 @@ def check(path):
             errs.append(f"{tag}: {why}")
             continue
         for style in LOOKS:
-            look = render.make_look(sc, theme, style)
+            look = render.make_look(sc, theme, style, "e%03d" % (k + 1))
             parts = [("問題", getattr(look, "qb", None))] + [("選択肢" + "ABC"[i], b) for i, b in enumerate(getattr(look, "cb", []) or [])]
             if hasattr(look, "tb"):
                 parts.append(("ひっかけ", look.tb))
             for name, tb in parts:
                 if tb is not None and not tb.fits:
                     errs.append(f"{tag}: {style} で {name} が入りきりません（短くしてください）")
+            # 見た目の版5：問題文の下に、選択肢とカウントダウン・コメントの呼びかけ・ひっかけの場所（ZONE）が残るか
+            if look.zone_top + B.ZONE > B.CONTENT_BOTTOM + 1:
+                errs.append(f"{tag}: {style} で 問題文が長く、カウントダウンとひっかけの場所が足りません（短くしてください）")
     errs += check_theme(theme, data["scripts"])
     return errs
 
 
 def check_theme(theme, scripts):
-    """つかみの一言（全部）と締めの文字が、3つの見た目すべてで入りきるか"""
+    """画面に出す決まった文言（見出し・コメントの呼びかけ・「毎日」の文言・締めの帯）が、3つの見た目すべてで入りきるか"""
     errs = []
     row = next((s for s in scripts if s.get("q1")), None)
     if row is None:
@@ -69,20 +73,25 @@ def check_theme(theme, scripts):
                               "ひっかけ": row.get("trap", "")})
     if sc is None:
         return errs
-    if not theme.get("つかみ"):
-        errs.append("themes の「つかみ」が空です")
-    for hook in theme.get("つかみ", []):
-        if re.search(r"\d", hook.replace("107", "")):
-            errs.append(f"つかみ「{hook}」：数字は使わないでください（裏付けのない数字を出さないため）")
-        for style in LOOKS:
-            look = render.make_look(dict(sc, hook=hook), theme, style)
-            if not look.hb.fits:
-                errs.append(f"つかみ「{hook}」が {style} で入りきりません")
+    w = theme["文言"]
+    for key in ("ラベル", "コメント", "毎日"):
+        if not str(w.get(key, "")).strip():
+            errs.append(f"themes の 文言「{key}」が空です")
+    if re.search(r"\d", w.get("締めの声", "").replace("107", "")) or len(w.get("締めの声", "").split()) > 8:
+        errs.append("締めの声は数字なし・8語以内にしてください（2.0秒に収まらないと省かれます）")
     for style in LOOKS:
-        look = render.make_look(sc, theme, style)
-        for name, tb in (("締め_登録", look.eb_sub), ("締め_案内", look.eb_site)):
-            if not tb.fits:
-                errs.append(f"{name} が {style} で入りきりません")
+        look = render.make_look(sc, theme, style, "e002")       # 偶数の台本ID（締めの帯ありの形）も作れるか
+        dk = render.dk
+        safe_w = dk.SAFE["right"] - dk.SAFE["left"]
+        label_end = dk.SAFE["left"] + dk.text_sprite(look.label_text() + "  " + look.no_text(), (0, 0, 0, 255), "Bold", 26).width / dk.R
+        if label_end > B.ICON_X - B.ICON_R - 4:
+            errs.append(f"{style} で 見出し（ラベルと No.）がドローンの絵に重なります")
+        pr = look.prompt_sprite((0, 0, 0, 255), (0, 0, 0, 255))
+        if pr is not None and pr.width / dk.R - 2 * dk.PAD > safe_w:
+            errs.append(f"コメントの呼びかけ が {style} で入りきりません")
+        for name, text, px in [("毎日", w.get("毎日", ""), 22)] + [("締めの帯", t, 46 if i == 0 else 28) for i, t in enumerate(look.cta_lines())]:
+            if text and dk.text_sprite(text, (0, 0, 0, 255), "Black", px).width / dk.R - 2 * dk.PAD > safe_w:
+                errs.append(f"{name}「{text}」が {style} で入りきりません")
     return errs
 
 

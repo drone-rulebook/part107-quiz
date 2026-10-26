@@ -1,24 +1,19 @@
 {
  "説明": "米国のドローン資格（FAA Part 107）のひっかけ問題チャンネル（英語）の設定。日本語版（drone.json）とは別のチャンネル。",
  "チャンネル名": "Part 107 Trick Questions",
- "見た目の版": 2,
+ "見た目の版": 3,
  "画質": "1080x1920",
  "文言": {
   "ラベル": "PART 107 TRICK QUESTION",
   "正解": "Answer",
   "正解の読み": "The answer is {}.",
   "ひっかけ見出し": "Trap",
-  "締め_登録": "*Subscribe* for tomorrow's trap",
-  "締め_案内": "Free practice test: *link in profile*"
+  "コメント": "Which one? *Comment* your answer",
+  "毎日": "Daily Part 107 trap | Subscribe",
+  "締めの声": "Subscribe for a new trap daily."
  },
- "つかみ": [
-  "Can you spot the *trap*?",
-  "Sounds easy. *It isn't.*",
-  "Don't *guess* this one.",
-  "Read this one *twice*.",
-  "Easy points? *Not quite.*"
- ],
- "つかみの説明": "動画の最初（0〜1.2秒）に画面いっぱいに出し、声でも最初に読む一言。台本IDの数字（e005 なら 5）で順に日替わり。*で囲んだ所は色が変わる。裏付けのない数字（「9割が間違える」など）は書かない。",
+ "締めの声を使う": "偶数",
+ "締めの声の説明": "「偶数」「奇数」なら台本IDの数字（e012 なら 12）の偶数・奇数の動画だけに、問題の画面へ戻る前に「毎日」の帯（Daily Part 107 trap / Subscribe）と締めの声（2.0秒）を入れる（入れる・入れないで、登録とくり返し再生を比べるため）。「全部」「なし」も使える。締めの声は Kokoro の速さ 1.05 で2秒に収まる短さにする（長いと省かれる）。",
  "改行しない言葉": [],
  "型の選び方": {
   "方法": "順番",
